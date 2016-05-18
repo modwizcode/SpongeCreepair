@@ -1,12 +1,36 @@
 package im.wma.dev.creepair;
 
+import static org.spongepowered.api.block.BlockTypes.BOOKSHELF;
+import static org.spongepowered.api.block.BlockTypes.DIRT;
+import static org.spongepowered.api.block.BlockTypes.DOUBLE_STONE_SLAB;
+import static org.spongepowered.api.block.BlockTypes.DOUBLE_STONE_SLAB2;
+import static org.spongepowered.api.block.BlockTypes.DOUBLE_WOODEN_SLAB;
+import static org.spongepowered.api.block.BlockTypes.GRASS;
+import static org.spongepowered.api.block.BlockTypes.GRAVEL;
+import static org.spongepowered.api.block.BlockTypes.ICE;
+import static org.spongepowered.api.block.BlockTypes.LEAVES;
+import static org.spongepowered.api.block.BlockTypes.LEAVES2;
+import static org.spongepowered.api.block.BlockTypes.LOG;
+import static org.spongepowered.api.block.BlockTypes.LOG2;
+import static org.spongepowered.api.block.BlockTypes.MOSSY_COBBLESTONE;
+import static org.spongepowered.api.block.BlockTypes.PACKED_ICE;
+import static org.spongepowered.api.block.BlockTypes.PLANKS;
+import static org.spongepowered.api.block.BlockTypes.RED_SANDSTONE;
+import static org.spongepowered.api.block.BlockTypes.SAND;
+import static org.spongepowered.api.block.BlockTypes.SANDSTONE;
+import static org.spongepowered.api.block.BlockTypes.STONE;
+import static org.spongepowered.api.block.BlockTypes.STONE_SLAB;
+import static org.spongepowered.api.block.BlockTypes.STONE_SLAB2;
+import static org.spongepowered.api.block.BlockTypes.TALLGRASS;
+import static org.spongepowered.api.block.BlockTypes.VINE;
+import static org.spongepowered.api.block.BlockTypes.WOODEN_SLAB;
+
 import com.google.common.collect.Lists;
 import com.google.inject.Inject;
 import org.slf4j.Logger;
 import org.spongepowered.api.Game;
 import org.spongepowered.api.block.BlockSnapshot;
 import org.spongepowered.api.block.BlockType;
-import org.spongepowered.api.block.BlockTypes;
 import org.spongepowered.api.command.CommandCallable;
 import org.spongepowered.api.command.CommandResult;
 import org.spongepowered.api.command.CommandSource;
@@ -19,6 +43,8 @@ import org.spongepowered.api.entity.EntityTypes;
 import org.spongepowered.api.entity.Item;
 import org.spongepowered.api.entity.living.monster.Creeper;
 import org.spongepowered.api.event.Listener;
+import org.spongepowered.api.event.Order;
+import org.spongepowered.api.event.block.ChangeBlockEvent;
 import org.spongepowered.api.event.block.NotifyNeighborBlockEvent;
 import org.spongepowered.api.event.cause.Cause;
 import org.spongepowered.api.event.cause.entity.spawn.BlockSpawnCause;
@@ -52,9 +78,11 @@ public class CreepairPlugin {
     private List<Mend> remainingMends = new ArrayList<>();
     private Task fixApplicationTask = null;
 
-    private List<BlockType> protectedTypes = Lists.newArrayList(BlockTypes.DIRT, BlockTypes.GRASS, BlockTypes.TALLGRASS, BlockTypes.STONE,
-            BlockTypes.GRAVEL, BlockTypes.SAND, BlockTypes.ICE, BlockTypes.PACKED_ICE, BlockTypes.VINE, BlockTypes.MOSSY_COBBLESTONE, BlockTypes
-                    .SANDSTONE);
+    private List<BlockType> protectedTypes = Lists.newArrayList(DIRT, GRASS, TALLGRASS, STONE,
+            GRAVEL, SAND, ICE, PACKED_ICE, VINE, MOSSY_COBBLESTONE,
+            SANDSTONE, LOG, LOG2, PLANKS, WOODEN_SLAB, DOUBLE_WOODEN_SLAB,
+            STONE_SLAB, STONE_SLAB2, DOUBLE_STONE_SLAB, DOUBLE_STONE_SLAB2, RED_SANDSTONE,
+            LEAVES, LEAVES2);
     private int processPerRun = 5;
 
     @Listener
@@ -87,7 +115,7 @@ public class CreepairPlugin {
     private CommandResult spawnTestCreeper(CommandSource src, CommandContext context) {
         WorldProperties mainWorldProps = game.getServer().getDefaultWorld().get();
         World mainWorld = game.getServer().loadWorld(mainWorldProps).get();
-        mainWorld.getSpawnLocation().setBlockType(BlockTypes.BOOKSHELF);
+        mainWorld.getSpawnLocation().setBlockType(BOOKSHELF);
         Creeper creeper = (Creeper) mainWorld.createEntity(EntityTypes.CREEPER, mainWorld.getSpawnLocation().getPosition()).get();
         mainWorld.spawnEntity(creeper, Cause.source(EntitySpawnCause.builder().entity(creeper).type(SpawnTypes.PLUGIN).build()).build());
         creeper.ignite();
@@ -128,7 +156,7 @@ public class CreepairPlugin {
     @Listener
     public void preventNotifies(NotifyNeighborBlockEvent event, @First BlockSnapshot source, @Named("ParentSource") Creeper parentCause) {
         for (Mend remainingMend : remainingMends) {
-            if (remainingMend.getSource().equals(parentCause) || remainingMend.containsSnapshot(source)) {
+            if (remainingMend.getSource().equals(parentCause) || remainingMend.isRelated(source.getLocation().get())) {
                 logger.debug("Notify canceled: {}", event.getCause());
                 event.setCancelled(true);
                 break;
@@ -137,19 +165,18 @@ public class CreepairPlugin {
     }
 
     @Listener
-    public void onDrop(DropItemEvent.Destruct event) {
-        for (Entity entity : event.getEntities()) {
-            if (entity.getType().equals(EntityTypes.ITEM)) {
-                if (((Item) entity).getItemType().equals(ItemTypes.SAPLING)) {
-                    logger.info("Drop cause: {}", event.getCause());
-                }
-            }
+    public void onDecay(ChangeBlockEvent.Decay event, @First BlockSnapshot source) {
+        if (remainingMends.stream().anyMatch(mend -> mend.isRelated(source.getLocation().get()))) {
+            logger.debug("Cancelled decay event: {}", event.getCause());
+            event.setCancelled(true);
         }
     }
+
+    // TODO: When sponge properly supports stoppping all item drops caused by an explosion, use that
     @Listener
     public void preventDrops(DropItemEvent.Destruct event, @First BlockSpawnCause source) {
         for (Mend remainingMend : remainingMends) {
-            if (remainingMend.containsSnapshot(source.getBlockSnapshot())) {
+            if (remainingMend.isRelated(source.getBlockSnapshot().getLocation().get())) {
                 logger.debug("Drops cancelled: {}", event.getCause());
                 logger.trace("dropped entities: {}", event.getEntities());
                 event.setCancelled(true);

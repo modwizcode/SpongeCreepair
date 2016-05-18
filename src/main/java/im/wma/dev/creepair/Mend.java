@@ -6,13 +6,17 @@ import com.google.common.base.Objects;
 import org.slf4j.Logger;
 import org.spongepowered.api.block.BlockSnapshot;
 import org.spongepowered.api.block.BlockState;
+import org.spongepowered.api.block.BlockType;
 import org.spongepowered.api.block.BlockTypes;
+import org.spongepowered.api.data.LocateableSnapshot;
 import org.spongepowered.api.entity.living.monster.Creeper;
+import org.spongepowered.api.util.Direction;
 import org.spongepowered.api.world.Location;
 import org.spongepowered.api.world.World;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * This class is for storing the Creeper that caused the mend, its full list
@@ -32,6 +36,10 @@ public class Mend {
 
     // Logging is useful for debugging
     private static Logger logger;
+
+    // The connected directions
+    private static final Direction[] CONNECTED = new Direction[]{Direction.DOWN, Direction.UP,
+        Direction.EAST, Direction.NORTH, Direction.WEST, Direction.SOUTH};
 
     public Mend(Creeper source) {
         this.source = source;
@@ -84,24 +92,23 @@ public class Mend {
      * Checks if the list of snapshots captured from the explosion contains
      * the given snapshot.
      *
-     * <p>Note: This is not an exact comparison as that would be a problem
-     * for item drops, so we compare against {@link BlockState}, extended
-     * BlockState and {@link Location} to do a reasonably accurate match.</p>
-     *
      * @param snapshot The snapshot to match against
      * @return If the snapshot was in the explosion
      */
     public boolean containsSnapshot(BlockSnapshot snapshot) {
-        boolean hasEqual = false;
-        for (BlockSnapshot capturedSnapshot : capturedBlocks) {
-            if (capturedSnapshot.getLocation().equals(snapshot.getLocation()) &&
-                    capturedSnapshot.getState().equals(snapshot.getState()) &&
-                    capturedSnapshot.getExtendedState().equals(capturedSnapshot.getExtendedState())) {
-                hasEqual = true;
-                break;
-            }
-        }
-        return hasEqual;
+        return capturedBlocks.stream().anyMatch(snapshot::equals);
+    }
+
+    /**
+     * Compares the provided location to the locations that have been captured, instead of the whole
+     * block state.
+     *
+     * @param location The possible related location
+     * @return If the location is related to a captured position
+     */
+    public boolean isRelated(Location location) {
+        return capturedBlocks.stream().map(LocateableSnapshot::getLocation).filter(Optional::isPresent)
+                .map(Optional::get).anyMatch(location::equals);
     }
 
     /**
